@@ -1,0 +1,130 @@
+import org.hidetake.gradle.swagger.generator.GenerateSwaggerUI
+
+buildscript {
+    ext {
+        restdocsApiSpecVersion = '0.16.2'
+    }
+}
+
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '2.7.9'
+    id 'io.spring.dependency-management' version '1.1.4'
+    id 'org.asciidoctor.convert' version '2.4.0'
+    id 'org.hidetake.swagger.generator' version '2.18.2'
+    id 'com.epages.restdocs-api-spec' version "${restdocsApiSpecVersion}"
+}
+
+group = 'com.study'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    sourceCompatibility = '17'
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    set('snippetsDir', file("build/generated-snippets"))
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
+    implementation 'org.springframework.restdocs:spring-restdocs-webtestclient'
+
+    implementation group: 'com.epages', name: 'restdocs-api-spec', version: '0.9.6'
+    implementation group: 'com.epages', name: 'restdocs-api-spec-mockmvc', version: '0.9.9'
+    implementation 'com.epages:restdocs-api-spec-webtestclient:0.9.9'
+
+    compileOnly 'org.projectlombok:lombok'
+    runtimeOnly 'com.h2database:h2'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    testCompileOnly 'org.projectlombok:lombok:1.18.26'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.26'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.springframework.restdocs:spring-restdocs-mockmvc'
+    testImplementation 'org.springframework.restdocs:spring-restdocs-webtestclient'
+    testImplementation "com.epages:restdocs-api-spec-restassured:${restdocsApiSpecVersion}"
+    testImplementation "com.epages:restdocs-api-spec-mockmvc:${restdocsApiSpecVersion}"
+
+    swaggerUI 'org.webjars:swagger-ui:4.11.1'
+}
+
+clean {
+    delete 'src/main/resources/static/api'
+}
+
+tasks.named('test') {
+    outputs.dir snippetsDir
+    useJUnitPlatform()
+}
+
+tasks.named('build') {
+    dependsOn 'copySwaggerUI'
+}
+
+bootJarMainClassName {
+    dependsOn 'copySwaggerUI'
+}
+
+tasks.withType(Jar).configureEach {
+    dependsOn 'copySwaggerUI'
+}
+
+// GenerateSwaggerUI task 는 SwaggerGeneratorPlugin.groovy 에서 생성
+tasks.withType(GenerateSwaggerUI).configureEach {
+    dependsOn 'openapi3'
+}
+
+swaggerSources {
+    sample {
+        setInputFile(file("${project.buildDir}/api-spec/openapi3.yaml"))
+    }
+}
+
+tasks.register('copySwaggerUI', Copy) {
+    dependsOn 'generateSwaggerUISample'
+
+    def generateSwaggerUISampleTask = tasks.named('generateSwaggerUISample', GenerateSwaggerUI).get()
+
+    from("${generateSwaggerUISampleTask.outputDir}")
+    into("${project.buildDir}/resources/main/static/api/docs")
+
+    doLast {
+        File indexHtml = file("${project.buildDir}/resources/main/static/api/docs/index.html")
+        String indexHtmlContent = indexHtml.text
+
+        indexHtmlContent = indexHtmlContent.replace("docExpansion: 'full'", "docExpansion: 'list'")
+        indexHtmlContent = indexHtmlContent.replace("<title>Swagger UI</title>", "<title>BodyCodi Plus API</title>");
+
+        indexHtml.write(indexHtmlContent)
+
+        copy {
+            from "${buildDir}/resources/main/static/api/docs"
+            into "${projectDir}/src/main/resources/static/api/docs"
+        }
+    }
+}
+
+openapi3 {
+    setServer("http://localhost:9999")
+    title = "API Documentation"
+    description = "API 가이드 문서 사이트입니다."
+    version = "0.0.1"
+    format = "yaml"
+}
